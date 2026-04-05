@@ -1,2 +1,273 @@
-# Maximum-Speed
-A simple, addicting game where you try and reach a certain score by dodging obstacles, avoiding blockades and travelling at Maximum Speed.
+<!DOCTYPE html>
+n<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MAXIMUM SPEED</title>
+    <style>
+        b   ody { margin: 0; padding: 0; overflow: hidden; background: #020205; font-family: 'Courier New', Courier, monospace; color: white; }
+        canvas { display: block; touch-action: none; }
+        #menu, #winScreen {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; background: rgba(0,0,0,0.95); padding: 40px; border: 3px solid #ffd700;
+            box-shadow: 0 0 30px #ffd700; z-index: 10;
+        }
+        h1 { font-size: 3rem; margin: 0 0 20px 0; letter-spacing: 5px; color: #ffd700; text-shadow: 0 0 10px #ffd700; }
+        h2 { font-size: 2rem; color: #00ffff; margin-bottom: 20px; }
+        button {
+            display: block; width: 280px; margin: 15px auto; padding: 18px;
+            background: #000; color: #ffd700; border: 2px solid #ffd700; font-weight: bold; 
+            cursor: pointer; transition: 0.3s; font-size: 1rem;
+        }
+        button:hover { background: #ffd700; color: black; transform: scale(1.05); }
+        .lvl-btn { color: cyan; border-color: cyan; }
+        .lvl-btn:hover { background: cyan; color: black; }
+    </style>
+</head>
+<body>
+    <div id="menu">
+        <h1>MAXIMUM SPEED</h1>
+        <button class="lvl-btn" onclick="startGame(1)">LEVEL 1: THE GORGE</button>
+        <button class="lvl-btn" onclick="startGame(2)">LEVEL 2: THE VOID</button>
+        <button class="lvl-btn" onclick="startGame(3)">LEVEL 3: LIGHTSPEED</button>
+        <button onclick="startGame(4)" style="border-color: #ff00ff; color: #ff00ff;">LEVEL 4: THE GAUNTLET</button>
+    </div>
+
+    <div id="winScreen" style="display:none;">
+        <h2 id="compliment">WELL DONE!</h2>
+        <p id="statsText">Level Cleared!</p>
+        <button class="lvl-btn" onclick="showMenu()">BACK TO LEVELS</button>
+    </div>
+
+    <canvas id="gameCanvas" style="display:none;"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const menu = document.getElementById('menu');
+        const winScreen = document.getElementById('winScreen');
+        const compText = document.getElementById('compliment');
+
+        let gameActive = false;
+        let isPaused = false;
+        let waitingToStart = true;
+        let score = 0;
+        let currentLevel = 1;
+        let levelGoal = 100;
+        
+        let speed = 7, shrinkSpeed = 2.8, minGap = 130, direction = 1; 
+        let currentGap, pointSpacing = 60, cubeSpawnCooldown = 0;
+        let stars = [], player, wallPoints = [], obstacles = [], floaters = [];
+        let currentCenterY, slope, segmentLength;
+
+        const compliments = ["YOU'RE UNSTOPPABLE!", "ABSOLUTE LEGEND!", "GOD-LIKE REFLEXES!", "TOO FAST TO CATCH!", "PURE TALENT!", "INSANE SKILLS!"];
+
+        const themes = [
+            { bg: '#020205', wall: '#0a0a15', border: '#00ffff' }, // L1
+            { bg: '#020802', wall: '#051a05', border: '#00ff66' }, // L2 (Formerly L3 Green)
+            { bg: '#080202', wall: '#1a0505', border: '#ff3366' }, // L3 (Formerly L2 Red)
+            { bg: '#0a0a0a', wall: '#1a1a1a', border: '#ffd700' }  // L4
+        ];
+
+        function showMenu() {
+            winScreen.style.display = 'none';
+            menu.style.display = 'block';
+            canvas.style.display = 'none';
+            gameActive = false;
+        }
+
+        function startGame(lvl) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            currentLevel = lvl;
+            score = 0;
+            gameActive = true;
+            isPaused = false;
+            waitingToStart = true;
+            shrinkSpeed = 2.8;
+            
+            // SWAPPED LOGIC: L2 and L3
+            if(lvl === 1) { speed = 6; levelGoal = 100; minGap = 150; }
+            if(lvl === 2) { speed = 8; levelGoal = 150; minGap = 120; } // The Void (Moving Cubes)
+            if(lvl === 3) { speed = 10; levelGoal = 200; minGap = 110; } // Lightspeed (Fast/Narrow)
+            if(lvl === 4) { speed = 11; levelGoal = 250; minGap = 105; shrinkSpeed = 3.5; }
+
+            currentGap = canvas.height * 0.8;
+            player = { x: 150, y: canvas.height / 2, trail: [] };
+            wallPoints = []; obstacles = []; floaters = [];
+            currentCenterY = canvas.height / 2;
+            slope = 0; segmentLength = 0;
+
+            stars = [];
+            for(let i = 0; i < 80; i++) stars.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, size: Math.random() * 2, speed: 0.5 + Math.random() * 2 });
+
+            menu.style.display = 'none';
+            winScreen.style.display = 'none';
+            canvas.style.display = 'block';
+
+            for (let i = 0; i <= canvas.width + pointSpacing * 2; i += pointSpacing) {
+                wallPoints.push(createPoint(i, true));
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        function createPoint(x, isInit = false) {
+            if (segmentLength <= 0) {
+                slope = (Math.random() > 0.5) ? (13 + Math.random() * 12) : -(13 + Math.random() * 12);
+                segmentLength = 2 + Math.random() * 4;
+            }
+            if (score > 10) {
+                currentCenterY += slope;
+                if (currentGap > minGap) currentGap -= shrinkSpeed;
+            }
+            const margin = currentGap / 2 + 100; 
+            if (currentCenterY < margin) { currentCenterY = margin; slope = Math.abs(slope); } 
+            else if (currentCenterY > canvas.height - margin) { currentCenterY = canvas.height - margin; slope = -Math.abs(slope); }
+            segmentLength--;
+            let newPoint = { x: x, topY: currentCenterY - (currentGap / 2), botY: currentCenterY + (currentGap / 2) };
+            
+            if (!isInit && Math.random() > 0.85) {
+                let isTop = Math.random() > 0.5;
+                let sLen = (currentLevel === 1 || currentLevel === 4) ? 140 : 35;
+                obstacles.push({ x: x, y: isTop ? newPoint.topY : newPoint.botY, isTop: isTop, length: sLen });
+            }
+            return newPoint;
+        }
+
+        window.addEventListener('pointerdown', (e) => {
+            if (!gameActive) return;
+            if (e.clientX < 80 && e.clientY < 60) { isPaused = !isPaused; return; }
+            if (waitingToStart) { waitingToStart = false; return; }
+            if (!isPaused) direction *= -1;
+        });
+
+        function update() {
+            if (!gameActive || isPaused || waitingToStart) return;
+
+            stars.forEach(s => { s.x -= s.speed; if (s.x < 0) s.x = canvas.width; });
+            player.y += (speed * 1.3 * direction);
+            player.trail.push({ x: player.x, y: player.y });
+
+            wallPoints.forEach(p => p.x -= speed);
+            player.trail.forEach(p => p.x -= speed);
+            obstacles.forEach(o => o.x -= speed);
+
+            if (wallPoints[0].x < -pointSpacing) {
+                wallPoints.shift();
+                wallPoints.push(createPoint(wallPoints[wallPoints.length - 1].x + pointSpacing));
+                score++;
+                if (cubeSpawnCooldown > 0) cubeSpawnCooldown--;
+                
+                // Spawn logic for Void(2), Lightspeed(3), and Gauntlet(4)
+                if (currentLevel >= 2 && cubeSpawnCooldown === 0 && Math.random() > 0.7) {
+                    floaters.push({ 
+                        x: canvas.width + 50, 
+                        baseY: currentCenterY + (Math.random() - 0.5) * (currentGap * 0.5), 
+                        size: 55, 
+                        angle: Math.random() * 6, 
+                        // Now Level 2 and Level 4 have movement
+                        moveRange: (currentLevel === 2 || currentLevel === 4 ? 65 : 0), 
+                        moveSpeed: 0.07 
+                    });
+                    cubeSpawnCooldown = (currentLevel === 4 ? 7 : 10);
+                }
+            }
+
+            floaters.forEach(f => { f.x -= speed; f.angle += f.moveSpeed; f.y = f.baseY + Math.sin(f.angle) * f.moveRange; });
+
+            if (score >= levelGoal) {
+                gameActive = false;
+                compText.innerText = compliments[Math.floor(Math.random() * compliments.length)];
+                document.getElementById('statsText').innerText = `Level ${currentLevel} Cleared with Score: ${score}`;
+                winScreen.style.display = 'block';
+            }
+
+            for (let i = 0; i < wallPoints.length - 1; i++) {
+                let p1 = wallPoints[i], p2 = wallPoints[i+1];
+                if (player.x >= p1.x && player.x <= p2.x) {
+                    let t = (player.x - p1.x) / (p2.x - p1.x);
+                    if (player.y < (p1.topY + (p2.topY - p1.topY) * t) || player.y > (p1.botY + (p2.botY - p1.botY) * t)) die();
+                }
+            }
+            obstacles.forEach(o => {
+                if (Math.abs(player.x - o.x) < 22) {
+                    if (o.isTop && player.y < o.y + o.length) die();
+                    if (!o.isTop && player.y > o.y - o.length) die();
+                }
+            });
+            floaters.forEach(f => {
+                if (Math.abs(player.x - f.x) < 30 && Math.abs(player.y - f.y) < 30) die();
+            });
+
+            if (player.trail.length > 80) player.trail.shift();
+        }
+
+        function die() {
+            gameActive = false;
+            alert("CRASHED! Level " + currentLevel + " Score: " + score);
+            showMenu();
+        }
+
+        function gameLoop() {
+            if (!gameActive) return;
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function draw() {
+            let theme = themes[currentLevel - 1];
+            ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "white"; stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
+
+            ctx.fillStyle = theme.wall; ctx.strokeStyle = theme.border; ctx.lineWidth = 12;
+            const drawWall = (isTop) => {
+                ctx.beginPath(); ctx.moveTo(wallPoints[0].x, isTop ? -100 : canvas.height + 100);
+                wallPoints.forEach(p => ctx.lineTo(p.x, isTop ? p.topY : p.botY));
+                ctx.lineTo(wallPoints[wallPoints.length-1].x, isTop ? -100 : canvas.height + 100);
+                ctx.fill(); ctx.stroke();
+            };
+            drawWall(true); drawWall(false);
+
+            ctx.fillStyle = '#ff0033'; ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
+            obstacles.forEach(o => {
+                ctx.beginPath(); ctx.moveTo(o.x - 18, o.y); ctx.lineTo(o.x + 18, o.y);
+                ctx.lineTo(o.x, o.isTop ? o.y + o.length : o.y - o.length);
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+            });
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; ctx.strokeStyle = theme.border; ctx.lineWidth = 3;
+            floaters.forEach(f => { ctx.fillRect(f.x - 27, f.y - 27, 55, 55); ctx.strokeRect(f.x - 27, f.y - 27, 55, 55); });
+
+            if (player.trail.length > 1) {
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 14; ctx.beginPath();
+                ctx.moveTo(player.trail[0].x, player.trail[0].y);
+                player.trail.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+                ctx.strokeStyle = theme.border; ctx.lineWidth = 8; ctx.stroke();
+            }
+
+            ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(direction === 1 ? 0.7 : -0.7);
+            ctx.fillStyle = theme.border; ctx.strokeStyle = 'white'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(-12, -12); ctx.lineTo(-12, 12);
+            ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+
+            ctx.fillStyle = 'white'; ctx.font = 'bold 20px monospace';
+            ctx.textAlign = 'left'; ctx.fillText(isPaused ? "▶" : "II", 22, 38);
+            ctx.textAlign = 'right'; ctx.fillText(`SCORE: ${score}/${levelGoal}`, canvas.width - 30, 40);
+            ctx.textAlign = 'center'; ctx.fillText(`LEVEL ${currentLevel}`, canvas.width/2, 40);
+            
+            if (waitingToStart) {
+                ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0,0,canvas.width, canvas.height);
+                ctx.fillStyle = theme.border; ctx.font = 'bold 40px monospace';
+                ctx.fillText("TAP TO START", canvas.width/2, canvas.height/2);
+            } else if (isPaused) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,canvas.width, canvas.height);
+                ctx.fillStyle = 'white'; ctx.font = 'bold 40px monospace';
+                ctx.fillText("PAUSED", canvas.width/2, canvas.height/2);
+            }
+        }
+    </script>
+</body>
+</html>
+
+
