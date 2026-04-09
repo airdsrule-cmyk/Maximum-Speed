@@ -5,23 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MAXIMUM SPEED</title>
     <style>
-        b   ody { margin: 0; padding: 0; overflow: hidden; background: #020205; font-family: 'Courier New', Courier, monospace; color: white; }
-        canvas { display: block; touch-action: none; }
+        body { margin: 0; padding: 0; overflow: hidden; background: #020205; font-family: 'Courier New', Courier, monospace; color: white; touch-action: none; }
+        canvas { display: block; touch-action: none; -webkit-user-select: none; user-select: none; }
         #menu, #winScreen {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             text-align: center; background: rgba(0,0,0,0.95); padding: 40px; border: 3px solid #ffd700;
-            box-shadow: 0 0 30px #ffd700; z-index: 10;
+            box-shadow: 0 0 30px #ffd700; z-index: 10; width: 80%; max-width: 400px;
         }
-        h1 { font-size: 3rem; margin: 0 0 20px 0; letter-spacing: 5px; color: #ffd700; text-shadow: 0 0 10px #ffd700; }
-        h2 { font-size: 2rem; color: #00ffff; margin-bottom: 20px; }
+        h1 { font-size: 2.5rem; margin: 0 0 20px 0; letter-spacing: 5px; color: #ffd700; text-shadow: 0 0 10px #ffd700; }
+        h2 { font-size: 1.8rem; color: #00ffff; margin-bottom: 20px; }
         button {
-            display: block; width: 280px; margin: 15px auto; padding: 18px;
+            display: block; width: 100%; margin: 15px auto; padding: 18px;
             background: #000; color: #ffd700; border: 2px solid #ffd700; font-weight: bold; 
-            cursor: pointer; transition: 0.3s; font-size: 1rem;
+            cursor: pointer; transition: 0.3s; font-size: 1rem; text-transform: uppercase;
         }
         button:hover { background: #ffd700; color: black; transform: scale(1.05); }
         .lvl-btn { color: cyan; border-color: cyan; }
         .lvl-btn:hover { background: cyan; color: black; }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.8rem; }
+            #menu { padding: 20px; }
+            button { padding: 12px; font-size: 0.9rem; }
+        }
     </style>
 </head>
 <body>
@@ -63,11 +68,21 @@
         const compliments = ["YOU'RE UNSTOPPABLE!", "ABSOLUTE LEGEND!", "GOD-LIKE REFLEXES!", "TOO FAST TO CATCH!", "PURE TALENT!", "INSANE SKILLS!"];
 
         const themes = [
-            { bg: '#020205', wall: '#0a0a15', border: '#00ffff' }, // L1
-            { bg: '#020802', wall: '#051a05', border: '#00ff66' }, // L2 (Formerly L3 Green)
-            { bg: '#080202', wall: '#1a0505', border: '#ff3366' }, // L3 (Formerly L2 Red)
-            { bg: '#0a0a0a', wall: '#1a1a1a', border: '#ffd700' }  // L4
+            { bg: '#020205', wall: '#0a0a15', border: '#00ffff' },
+            { bg: '#020802', wall: '#051a05', border: '#00ff66' },
+            { bg: '#080202', wall: '#1a0505', border: '#ff3366' },
+            { bg: '#0a0a0a', wall: '#1a1a1a', border: '#ffd700' }
         ];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (gameActive && waitingToStart) {
+                currentCenterY = canvas.height / 2;
+                player.y = canvas.height / 2;
+            }
+        }
+        window.addEventListener('resize', resize);
 
         function showMenu() {
             winScreen.style.display = 'none';
@@ -77,8 +92,7 @@
         }
 
         function startGame(lvl) {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            resize();
             currentLevel = lvl;
             score = 0;
             gameActive = true;
@@ -86,20 +100,21 @@
             waitingToStart = true;
             shrinkSpeed = 2.8;
             
-            // SWAPPED LOGIC: L2 and L3
             if(lvl === 1) { speed = 6; levelGoal = 100; minGap = 150; }
-            if(lvl === 2) { speed = 8; levelGoal = 150; minGap = 120; } // The Void (Moving Cubes)
-            if(lvl === 3) { speed = 10; levelGoal = 200; minGap = 110; } // Lightspeed (Fast/Narrow)
+            if(lvl === 2) { speed = 8; levelGoal = 150; minGap = 120; }
+            if(lvl === 3) { speed = 10; levelGoal = 200; minGap = 110; }
             if(lvl === 4) { speed = 11; levelGoal = 250; minGap = 105; shrinkSpeed = 3.5; }
 
             currentGap = canvas.height * 0.8;
-            player = { x: 150, y: canvas.height / 2, trail: [] };
+            player = { x: canvas.width * 0.15, y: canvas.height / 2, trail: [] };
+            if (player.x > 150) player.x = 150;
+
             wallPoints = []; obstacles = []; floaters = [];
             currentCenterY = canvas.height / 2;
             slope = 0; segmentLength = 0;
 
             stars = [];
-            for(let i = 0; i < 80; i++) stars.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, size: Math.random() * 2, speed: 0.5 + Math.random() * 2 });
+            for(let i = 0; i < 80; i++) stars.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: Math.random() * 2, speed: 0.5 + Math.random() * 2 });
 
             menu.style.display = 'none';
             winScreen.style.display = 'none';
@@ -134,12 +149,21 @@
             return newPoint;
         }
 
-        window.addEventListener('pointerdown', (e) => {
+        function handleInput(e) {
             if (!gameActive) return;
-            if (e.clientX < 80 && e.clientY < 60) { isPaused = !isPaused; return; }
+            // Prevent scrolling on touch
+            if (e.type === 'touchstart') e.preventDefault();
+            
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            if (clientX < 80 && clientY < 60) { isPaused = !isPaused; return; }
             if (waitingToStart) { waitingToStart = false; return; }
             if (!isPaused) direction *= -1;
-        });
+        }
+
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', handleInput, { passive: false });
 
         function update() {
             if (!gameActive || isPaused || waitingToStart) return;
@@ -158,14 +182,12 @@
                 score++;
                 if (cubeSpawnCooldown > 0) cubeSpawnCooldown--;
                 
-                // Spawn logic for Void(2), Lightspeed(3), and Gauntlet(4)
                 if (currentLevel >= 2 && cubeSpawnCooldown === 0 && Math.random() > 0.7) {
                     floaters.push({ 
                         x: canvas.width + 50, 
                         baseY: currentCenterY + (Math.random() - 0.5) * (currentGap * 0.5), 
                         size: 55, 
                         angle: Math.random() * 6, 
-                        // Now Level 2 and Level 4 have movement
                         moveRange: (currentLevel === 2 || currentLevel === 4 ? 65 : 0), 
                         moveSpeed: 0.07 
                     });
@@ -259,15 +281,15 @@
             if (waitingToStart) {
                 ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0,0,canvas.width, canvas.height);
                 ctx.fillStyle = theme.border; ctx.font = 'bold 40px monospace';
+                ctx.textAlign = 'center';
                 ctx.fillText("TAP TO START", canvas.width/2, canvas.height/2);
             } else if (isPaused) {
                 ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,canvas.width, canvas.height);
                 ctx.fillStyle = 'white'; ctx.font = 'bold 40px monospace';
+                ctx.textAlign = 'center';
                 ctx.fillText("PAUSED", canvas.width/2, canvas.height/2);
             }
         }
     </script>
 </body>
 </html>
-
-
